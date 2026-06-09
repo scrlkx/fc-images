@@ -17,6 +17,7 @@ from gi.repository import GObject, Nautilus
 _PROJECT_DIR = Path(__file__).resolve().parent
 _VENV_PYTHON = _PROJECT_DIR / ".venv" / "bin" / "python"
 _SCRIPT = _PROJECT_DIR / "convert_images.py"
+_CREATE_SET_SCRIPT = _PROJECT_DIR / "create_set.py"
 
 _STRINGS = {
     "pt": {
@@ -28,6 +29,8 @@ _STRINGS = {
         "remove_bg_tip":    "Remove fundos dos PNGs existentes usando IA",
         "crop":             "Recortar Objetos",
         "crop_tip":         "Remove bordas transparentes ao redor dos objetos nos PNGs",
+        "create_set":       "Criar Conjunto",
+        "create_set_tip":   "Alinha as imagens selecionadas lado a lado com a mesma altura",
         "done":             "Concluído",
         "press_enter":      "Pressione Enter para fechar...",
     },
@@ -40,6 +43,8 @@ _STRINGS = {
         "remove_bg_tip":    "Remove backgrounds from existing PNGs using AI",
         "crop":             "Crop Objects",
         "crop_tip":         "Trim transparent padding around objects in PNGs",
+        "create_set":       "Create Set",
+        "create_set_tip":   "Align selected images side by side at the same height",
         "done":             "Done",
         "press_enter":      "Press Enter to close...",
     },
@@ -96,12 +101,36 @@ def _run_in_terminal(directory: str, flag: str | None, title: str) -> None:
     subprocess.Popen(_terminal_fn(title, bash_cmd), start_new_session=True)
 
 
+def _run_create_set_in_terminal(file_paths: list[str], title: str) -> None:
+    if _terminal_fn is None:
+        return
+
+    args = [str(_VENV_PYTHON), str(_CREATE_SET_SCRIPT)] + file_paths
+    cmd = " ".join(shlex.quote(a) for a in args)
+    bash_cmd = (
+        f"{cmd}; "
+        f'echo ""; '
+        f'echo "--- {_T["done"]} ($?) ---"; '
+        f'echo "{_T["press_enter"]}"; '
+        f"read"
+    )
+
+    subprocess.Popen(_terminal_fn(title, bash_cmd), start_new_session=True)
+
+
 class FcImagesMenuProvider(GObject.GObject, Nautilus.MenuProvider):
     def get_file_items(self, files: list) -> list | None:
-        if len(files) != 1 or not files[0].is_directory():
-            return None
+        if len(files) == 1 and files[0].is_directory():
+            return self._directory_items(files[0])
 
-        directory = _uri_to_path(files[0].get_uri())
+        png_paths = [_uri_to_path(f.get_uri()) for f in files if f.get_mime_type() == "image/png"]
+        if len(png_paths) >= 2:
+            return self._create_set_item(png_paths)
+
+        return None
+
+    def _directory_items(self, directory_file) -> list:
+        directory = _uri_to_path(directory_file.get_uri())
 
         items = [
             ("FcImages::prepare",   _T["prepare"],   _T["prepare_tip"],   None,                 directory),
@@ -117,3 +146,12 @@ class FcImagesMenuProvider(GObject.GObject, Nautilus.MenuProvider):
             menu_items.append(item)
 
         return menu_items
+
+    def _create_set_item(self, png_paths: list[str]) -> list:
+        item = Nautilus.MenuItem(
+            name="FcImages::create_set",
+            label=_T["create_set"],
+            tip=_T["create_set_tip"],
+        )
+        item.connect("activate", lambda _, paths: _run_create_set_in_terminal(paths, _T["create_set"]), png_paths)
+        return [item]
